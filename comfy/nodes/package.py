@@ -9,10 +9,7 @@ import types
 from functools import reduce
 from importlib.metadata import entry_points
 
-from opentelemetry.trace import Span, Status, StatusCode
-
 from .package_typing import ExportedNodes
-from ..cmd.main_pre import tracer
 from ..component_model.files import get_package_as_path
 
 _comfy_nodes: ExportedNodes = ExportedNodes()
@@ -46,50 +43,43 @@ def _import_and_enumerate_nodes_in_module(module: types.ModuleType,
     exported_nodes = ExportedNodes()
     timings = []
     exceptions = []
-    with tracer.start_as_current_span("Load Node") as span:
-        time_before = time.perf_counter()
-        full_name = module.__name__
-        try:
-            module_decl = _import_nodes_in_module(exported_nodes, module)
-            span.set_attribute("full_name", full_name)
-            timings.append((time.perf_counter() - time_before, full_name, True, exported_nodes))
-        except Exception as exc:
-            module_decl = None
-            logging.error(f"{full_name} import failed", exc_info=exc)
-            span.set_status(Status(StatusCode.ERROR))
-            span.record_exception(exc)
-            exceptions.append(exc)
+    time_before = time.perf_counter()
+    full_name = module.__name__
+    try:
+        module_decl = _import_nodes_in_module(exported_nodes, module)
+        timings.append((time.perf_counter() - time_before, full_name, True, exported_nodes))
+    except Exception as exc:
+        module_decl = None
+        logging.error(f"{full_name} import failed", exc_info=exc)
+        exceptions.append(exc)
     if module_decl is None or not module_decl:
         # Iterate through all the submodules
         for _, name, is_pkg in pkgutil.iter_modules(module.__path__):
-            span: Span
-            with tracer.start_as_current_span("Load Node") as span:
-                full_name = module.__name__ + "." + name
-                time_before = time.perf_counter()
-                success = True
-                span.set_attribute("full_name", full_name)
-                new_nodes = ExportedNodes()
-                if full_name.endswith(".disabled"):
-                    continue
-                try:
-                    submodule = importlib.import_module(full_name)
-                    # Recursively call the function if it's a package
-                    new_nodes = _import_and_enumerate_nodes_in_module(submodule, print_import_times=print_import_times, depth=depth - 1)
-                    span.set_attribute("new_nodes.length", len(new_nodes))
-                    exported_nodes.update(new_nodes)
-                except KeyboardInterrupt as interrupted:
-                    raise interrupted
-                except Exception as x:
-                    if isinstance(x, AttributeError):
-                        potential_path_error: AttributeError = x
-                        if potential_path_error.name == '__path__':
-                            continue
-                    logging.error(f"{full_name} import failed", exc_info=x)
-                    success = False
-                    exceptions.append(x)
-                    span.set_status(Status(StatusCode.ERROR))
-                    span.record_exception(x)
-                timings.append((time.perf_counter() - time_before, full_name, success, new_nodes))
+            full_name = module.__name__ + "." + name
+            time_before = time.perf_counter()
+            success = True
+
+            new_nodes = ExportedNodes()
+            if full_name.endswith(".disabled"):
+                continue
+            try:
+                submodule = importlib.import_module(full_name)
+                # Recursively call the function if it's a package
+                new_nodes = _import_and_enumerate_nodes_in_module(submodule, print_import_times=print_import_times, depth=depth - 1)
+
+                exported_nodes.update(new_nodes)
+            except KeyboardInterrupt as interrupted:
+                raise interrupted
+            except Exception as x:
+                if isinstance(x, AttributeError):
+                    potential_path_error: AttributeError = x
+                    if potential_path_error.name == '__path__':
+                        continue
+                logging.error(f"{full_name} import failed", exc_info=x)
+                success = False
+                exceptions.append(x)
+
+            timings.append((time.perf_counter() - time_before, full_name, success, new_nodes))
 
     if print_import_times and len(timings) > 0 or any(not success for (_, _, success, _) in timings):
         for (duration, module_name, success, new_nodes) in sorted(timings):
@@ -102,7 +92,6 @@ def _import_and_enumerate_nodes_in_module(module: types.ModuleType,
     return exported_nodes
 
 
-@tracer.start_as_current_span("Import All Nodes In Workspace")
 def import_all_nodes_in_workspace(vanilla_custom_nodes=True, raise_on_failure=False) -> ExportedNodes:
     # now actually import the nodes, to improve control of node loading order
     from comfy_extras import nodes as comfy_extras_nodes  # pylint: disable=absolute-import-used

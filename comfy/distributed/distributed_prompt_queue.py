@@ -18,7 +18,6 @@ from .distributed_types import RpcRequest, RpcReply
 from .history import History
 from .server_stub import ServerStub
 from ..auth.permissions import jwt_decode
-from ..cmd.main_pre import tracer
 from ..cmd.server import PromptServer
 from ..component_model.abstract_prompt_queue import AsyncAbstractPromptQueue, AbstractPromptQueue
 from ..component_model.executor_types import ExecutorToClientProgress, SendSyncEvent, SendSyncData, HistoryResultDict
@@ -41,7 +40,6 @@ class DistributedPromptQueue(AbstractPromptQueue, AsyncAbstractPromptQueue):
     async def progress(self, event: SendSyncEvent, data: SendSyncData, sid: Optional[str]) -> None:
         self._caller_server.send_sync(event, data, sid=sid)
 
-    @tracer.start_as_current_span("Put Async")
     async def put_async(self, queue_item: QueueItem) -> TaskInvocation | None:
         assert self._is_caller
         assert self._rpc is not None

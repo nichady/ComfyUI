@@ -15,7 +15,6 @@ from .distributed_progress import DistributedExecutorToClientProgress
 from .distributed_types import RpcRequest, RpcReply
 from .process_pool_executor import ProcessPoolExecutor
 from ..client.embedded_comfy_client import Comfy
-from ..cmd.main_pre import tracer
 from ..component_model.queue_types import ExecutionStatus
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,6 @@ class DistributedPromptWorker:
             else:
                 logger.error(f"failed to start health check server with error {str(e)}, starting anyway")
 
-    @tracer.start_as_current_span("Do Work Item")
     async def _do_work_item(self, request: dict) -> dict:
         await self.on_will_complete_work_item(request)
         try:
@@ -111,7 +109,6 @@ class DistributedPromptWorker:
         except asyncio.TimeoutError:
             return False
 
-    @tracer.start_as_current_span("Initialize Prompt Worker")
     async def init(self):
         await self._exit_stack.__aenter__()
         await self._start_health_check_server()

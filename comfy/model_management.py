@@ -29,11 +29,9 @@ from typing import List, Sequence, Final, Optional
 
 import psutil
 import torch
-from opentelemetry.trace import get_current_span
 
 from . import interruption
 from .cli_args import args, PerformanceFeature
-from .cmd.main_pre import tracer
 from .component_model.deprecation import _deprecate_method
 from .model_management_types import ModelManageable
 
@@ -589,13 +587,9 @@ def minimum_inference_memory():
     return (1024 * 1024 * 1024) * 0.8 + extra_reserved_memory()
 
 
-@tracer.start_as_current_span("Free Memory")
 def free_memory(memory_required, device, keep_loaded=[]) -> List[LoadedModel]:
-    span = get_current_span()
-    span.set_attribute("memory_required", memory_required)
     with model_management_lock:
         unloaded_models = _free_memory(memory_required, device, keep_loaded)
-        span.set_attribute("unloaded_models", list(map(str, unloaded_models)))
         return unloaded_models
 
 
@@ -637,15 +631,10 @@ def _free_memory(memory_required, device, keep_loaded=[]):
     return unloaded_models
 
 
-@tracer.start_as_current_span("Load Models GPU")
 def load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0, force_patch_weights=False, minimum_memory_required=None, force_full_load=False) -> None:
-    span = get_current_span()
-    if memory_required != 0:
-        span.set_attribute("memory_required", memory_required)
     with model_management_lock:
         _load_models_gpu(models, memory_required, force_patch_weights, minimum_memory_required, force_full_load)
         to_load = list(map(str, models))
-        span.set_attribute("models", to_load)
         logger.debug(f"Loaded {to_load}")
 
 
@@ -723,10 +712,6 @@ def _load_models_gpu(models: Sequence[ModelManageable], memory_required: int = 0
         loaded_model.model_load(lowvram_model_memory, force_patch_weights=force_patch_weights)
         current_loaded_models.insert(0, loaded_model)
         logger.debug(f"Loaded {loaded_model}")
-
-    span = get_current_span()
-    span.set_attribute("models_to_load", list(map(str, models_to_load)))
-    span.set_attribute("models_freed", list(map(str, models_freed)))
 
 
 @_deprecate_method(message="Use load_models_gpu instead", version="0.0.2")

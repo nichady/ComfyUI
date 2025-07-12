@@ -17,9 +17,7 @@ from os import PathLike
 from typing import List, Optional, Tuple, Literal
 
 import torch
-from opentelemetry.trace import get_current_span, StatusCode, Status
 
-from .main_pre import tracer
 from .. import interruption
 from .. import model_management
 from ..caching import HierarchicalCache, LRUCache, CacheKeySetInputSignature, CacheKeySetID, DependencyAwareCache
@@ -181,15 +179,12 @@ def get_input_data(inputs, class_def, unique_id, outputs=None, dynprompt=None, e
     return input_data_all, missing_keys
 
 
-@tracer.start_as_current_span("Execute Node")
 def map_node_over_list(obj, input_data_all: typing.Dict[str, typing.Any], func: str, allow_interrupt=False, execution_block_cb=None, pre_execute_cb=None):
-    span = get_current_span()
     class_type = obj.__class__.__name__
-    span.set_attribute("class_type", class_type)
     if input_data_all is not None:
         for kwarg_name, kwarg_value in input_data_all.items():
             if isinstance(kwarg_value, str) or isinstance(kwarg_value, bool) or isinstance(kwarg_value, int) or isinstance(kwarg_value, float):
-                span.set_attribute(f"input_data_all.{kwarg_name}", kwarg_value)
+                pass
             else:
                 try:
                     items_to_display = []
@@ -204,9 +199,6 @@ def map_node_over_list(obj, input_data_all: typing.Dict[str, typing.Any], func: 
                     filtered_items = [
                         item for item in items_to_display if isinstance(item, (str, bool, int, float))
                     ]
-
-                    if filtered_items:
-                        span.set_attribute(f"input_data_all.{kwarg_name}", filtered_items)
                 except TypeError:
                     pass
     # check if node wants the lists
@@ -557,15 +549,6 @@ class PromptExecutor:
             self.server.send_sync(event, data, self.server.client_id)
 
     def handle_execution_error(self, prompt_id, prompt, current_outputs, executed, error, ex):
-        current_span = get_current_span()
-        current_span.set_status(Status(StatusCode.ERROR))
-        current_span.record_exception(ex)
-        try:
-            encoded_prompt = json.dumps(prompt)
-            current_span.set_attribute("prompt", encoded_prompt)
-        except Exception as exc_info:
-            pass
-
         node_id = error["node_id"]
         class_type = prompt[node_id]["class_type"]
 
@@ -939,26 +922,8 @@ def full_type_name(klass):
     return module + '.' + klass.__qualname__
 
 
-@tracer.start_as_current_span("Validate Prompt")
 def validate_prompt(prompt: typing.Mapping[str, typing.Any]) -> ValidationTuple:
     res = _validate_prompt(prompt)
-    if not res.valid:
-        span = get_current_span()
-        span.set_status(Status(StatusCode.ERROR))
-        if res.error is not None and len(res.error) > 0:
-            span.set_attributes({
-                f"error.{k}": v for k, v in res.error.items() if isinstance(v, (bool, str, bytes, int, float, list))
-            })
-            if "extra_info" in res.error and isinstance(res.error["extra_info"], dict):
-                extra_info: ValidationErrorExtraInfoDict = res.error["extra_info"]
-                span.set_attributes({
-                    f"error.extra_info.{k}": v for k, v in extra_info.items() if isinstance(v, (str, list))
-                })
-        if len(res.node_errors) > 0:
-            for node_id, node_error in res.node_errors.items():
-                for node_error_field, node_error_value in node_error.items():
-                    if isinstance(node_error_value, (str, bool, int, float)):
-                        span.set_attribute(f"node_errors.{node_id}.{node_error_field}", node_error_value)
     return res
 
 
